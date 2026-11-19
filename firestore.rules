@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- who is who ----
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function myEntry() { return /databases/$(database)/documents/allowlist/$(myEmail()); }
+    function isLeader() { return signedIn() && exists(myEntry()); }
+    function isAdmin() { return isLeader() && get(myEntry()).data.role == 'admin'; }
+
+    // Leaders allowed to sign in. Doc id = their email in lowercase.
+    match /allowlist/{email} {
+      allow get: if signedIn() && (email == myEmail() || isAdmin());
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Departments and round settings
+    match /config/{docId} {
+      allow read: if isLeader();
+      allow write: if isAdmin();
+    }
+
+    // The people being cared for
+    match /people/{personId} {
+      allow read: if isLeader();
+      allow write: if isAdmin();
+    }
+
+    // Check-ins: everyone on the team sees them. No notes are stored here.
+    match /checkins/{id} {
+      allow read: if isLeader();
+      allow create: if isLeader()
+        && request.resource.data.by == request.auth.uid
+        && !('note' in request.resource.data);
+      allow update: if isLeader()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['resolved', 'resolvedBy', 'resolvedByName', 'resolvedAt']);
+      allow delete: if isAdmin() || (isLeader() && resource.data.by == request.auth.uid);
+    }
+
+    // Private care notes: only the person who wrote them can read or write them.
+    match /users/{uid}/notes/{noteId} {
+      allow read, write: if isLeader() && request.auth.uid == uid;
+    }
+  }
+}

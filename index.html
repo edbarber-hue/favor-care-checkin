@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Care Check-In · Favor Kids</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@1,800;1,900&family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="row">
+      <span class="eyebrow">FAVOR KIDS · CARE CHECK-IN</span>
+      <span id="me"></span>
+    </div>
+    <h1 id="title">Care Check-In</h1>
+    <p class="sub" id="subtitle"></p>
+    <div class="chips" id="deptChips" role="group" aria-label="Department"></div>
+  </header>
+  <main>
+    <div id="status"></div>
+    <div id="summary"></div>
+    <div id="concerns"></div>
+    <div class="sectionhead"><h2 class="display">PEOPLE</h2><span class="muted" id="countNote"></span></div>
+    <div class="controls">
+      <label for="search" class="sr">Search people</label>
+      <input id="search" type="search" placeholder="Search a name">
+      <div class="filters" role="group" aria-label="Show">
+        <button class="fchip" data-f="need" aria-pressed="true">Needs a check-in</button>
+        <button class="fchip" data-f="fit" aria-pressed="false">Fit</button>
+        <button class="fchip" data-f="all" aria-pressed="false">Everyone</button>
+      </div>
+    </div>
+    <div class="list" id="list"></div>
+  </main>
+</div>
+<div id="modal"></div>
+<div id="admin"></div>
+<div id="login"></div>
+<div id="toast"></div>
+<script src="config.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
