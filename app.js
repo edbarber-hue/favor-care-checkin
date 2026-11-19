@@ -172,7 +172,7 @@ function renderLogin(){
   box.append(h('div', { class:'login', role:'dialog', 'aria-modal':'true', 'aria-labelledby':'lgTitle' },
     h('div', { class:'in' },
       h('span', { class:'eyebrow' }, 'FAVOR KIDS LEADERS'),
-      h('h1', { id:'lgTitle', style:'font-size:64px' }, 'CARE CHECK-IN'),
+      h('h1', { id:'lgTitle', style:'font-size:64px' }, 'FAVOR KIDS CARE'),
       card)));
   const first = box.querySelector('input'); if (first && !first.value) setTimeout(() => first.focus(), 0);
 }
@@ -253,7 +253,7 @@ function failWrite(){ S.error = 'That didn’t save. Check your connection and t
 // ---------- main render ----------
 function renderHeader(){
   const m = deptMeta(S.dept);
-  $('title').textContent = !S.me ? 'Care Check-In' : (S.dept === 'All' ? 'All departments' : S.dept);
+  $('title').textContent = !S.me ? 'Favor Kids Care' : (S.dept === 'All' ? 'All departments' : S.dept);
   $('subtitle').textContent = !S.me ? '' : (S.dept === 'All' ? 'Everyone' : (m ? m.lead : ''));
   const me = $('me'); me.textContent = '';
   if (S.me) me.append(h('span', { class:'eyebrow' }, 'HI, ' + S.me.name.toUpperCase()),

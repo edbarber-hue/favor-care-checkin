@@ -1,4 +1,4 @@
-# Care Check-In · Favor Kids
+# Favor Kids Care
 
 A simple site for Favor Kids leaders to check in on their people every two weeks.
 
