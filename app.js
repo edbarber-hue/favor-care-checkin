@@ -65,7 +65,7 @@ function healthLevel(pct){
 // ---------- state ----------
 const S = {
   auth:null, db:null, user:null, me:null, // me = {name, dept, role, email}
-  people:[], checkins:[], config:null, myNotes:[], allowlist:[],
+  people:[], checkins:[], plans:[], config:null, myNotes:[], allowlist:[],
   got:{people:false, config:false}, error:'',
   dept: lsGet('care.dept') || 'All', filter:'need', q:'',
   open:null, form:null, toastTimer:null, unsubs:[],
@@ -222,7 +222,7 @@ async function afterAuth(u){
 }
 
 // ---------- data ----------
-function stopListeners(){ S.unsubs.forEach(f => { try { f(); } catch(e){} }); S.unsubs = []; S.people = []; S.checkins = []; S.myNotes = []; S.allowlist = []; S.config = null; S.got = {people:false, config:false}; }
+function stopListeners(){ S.unsubs.forEach(f => { try { f(); } catch(e){} }); S.unsubs = []; S.people = []; S.checkins = []; S.plans = []; S.myNotes = []; S.allowlist = []; S.config = null; S.got = {people:false, config:false}; }
 function startListeners(){
   const onErr = () => { S.error = 'Couldn’t load the latest data. Reload to try again.'; renderAll(); };
   S.unsubs.push(onSnapshot(doc(S.db, 'config', 'main'), snap => {
@@ -237,6 +237,10 @@ function startListeners(){
   S.unsubs.push(onSnapshot(query(collection(S.db, 'checkins'), orderBy('at', 'desc'), limit(2000)), snap => {
     S.checkins = snap.docs.map(d => ({ ...d.data(), id: d.id })); renderAll();
   }, onErr));
+  S.unsubs.push(onSnapshot(query(collection(S.db, 'plans'), orderBy('when', 'asc')), snap => {
+    S.plans = snap.docs.map(d => ({ ...d.data(), id: d.id })); renderList();
+    if (S.open && S.form && !S.form.saving && document.activeElement && !['note','pl-what','pl-where'].includes(document.activeElement.id)) renderModal();
+  }, () => {}));
   S.unsubs.push(onSnapshot(collection(S.db, 'users', S.user.uid, 'notes'), snap => {
     S.myNotes = snap.docs.map(d => d.data()).sort((a,b) => a.at < b.at ? 1 : -1);
     if (S.open && S.form && !S.form.saving && document.activeElement && document.activeElement.id !== 'note') renderModal();
@@ -365,7 +369,8 @@ function renderList(){
         h('span', { class:'grow' },
           h('div', { class:'pname' }, p.name),
           h('div', { class:'muted' }, h('strong', { style:'color:' + L.fg }, L.label), ' · ' + lastTxt),
-          h('div', { class:'muted' }, where))),
+          h('div', { class:'muted' }, where),
+          nextPlan(p) ? h('div', { class:'muted', style:'color:var(--blue-d);font-weight:600' }, 'Meetup: ' + planLabel(nextPlan(p))) : null)),
       i.concern ? h('span', { class:'pill p-or' }, 'Raised') : null, quick));
   });
 }
@@ -449,6 +454,7 @@ function renderModal(){
           h('div', { style:'font-size:14px' }, i.last ? 'Last checked on ' + fmt(parseYmd(i.last.date), true) + ' by ' + whoName(i.last) + (i.rating != null ? ' · last rating ' + i.rating + '/10' : '') : 'No check-ins yet. Be the first!'))),
       myNotesBlock(p),
       h('section', { class:'card' }, h('div', { class:'row' }, h('strong', null, 'Reach out'), genBtn), msgBlock),
+      planBlock(p),
       h('section', { class:'card' }, h('div', { class:'row' }, h('strong', null, 'How are they?'), h('span', { class:'muted' }, '1 struggling · 10 thriving')), scale),
       h('section', { class:'card' }, h('label', { for:'note', style:'font-weight:600;display:block;margin-bottom:4px' }, 'Anything to note?'),
         h('div', { class:'muted', style:'margin-bottom:8px' }, 'Private: only you can see your notes.'), note),
@@ -460,6 +466,72 @@ function renderModal(){
       hist.length ? h('section', { style:'display:flex;flex-direction:column;gap:8px;padding:4px' }, h('strong', { class:'muted' }, 'Past check-ins'), hist) : null));
   const ov = h('div', { class:'overlay', onclick: e => { if (e.target === ov) closePerson(); } }, sheet);
   box.append(ov);
+}
+
+// ---------- meetups + Google Calendar ----------
+const todayStart = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+function nextPlan(p){ const t = todayStart(); return S.plans.find(x => x.personId === p.id && new Date(x.when) >= t); }
+function planLabel(pl){
+  const d = new Date(pl.when);
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' }) + (pl.byName ? ' with ' + pl.byName : '');
+}
+function gcalUrl(title, start, end, details, location, guest){
+  const z = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const u = new URL('https://calendar.google.com/calendar/render');
+  u.searchParams.set('action', 'TEMPLATE');
+  u.searchParams.set('text', title);
+  u.searchParams.set('dates', z(start) + '/' + z(end));
+  if (details) u.searchParams.set('details', details);
+  if (location) u.searchParams.set('location', location);
+  if (guest) u.searchParams.set('add', guest);
+  return u.toString();
+}
+function planBlock(p){
+  const f = S.form, first = p.name.split(' ')[0].replace(/\(.*?\)/g,'');
+  const existing = nextPlan(p);
+  const card = h('section', { class:'card', style:'display:flex;flex-direction:column;gap:10px' });
+  card.append(h('div', { class:'row' }, h('strong', null, 'Set a date'), h('span', { class:'muted' }, 'Adds it to Google Calendar')));
+  if (existing){
+    const mine = existing.by === S.user.uid || isAdmin();
+    card.append(h('div', { class:'msg', style:'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap' },
+      h('span', null, h('strong', null, existing.what || 'Meetup'), h('br'), planLabel(existing) + (existing.where ? ' · ' + existing.where : '')),
+      mine ? h('button', { class:'btn small', type:'button', onclick: async e => {
+        e.target.disabled = true;
+        try { await deleteDoc(doc(S.db, 'plans', existing.id)); toast('Meetup removed here. Delete it in Google Calendar too.'); renderModal(); }
+        catch(err){ e.target.disabled = false; failWrite(); }
+      } }, 'Remove') : null));
+  }
+  if (!f.plan) f.plan = { open:false, date: ymd(addDays(new Date(), 1)), time:'19:00', mins:'60', what:'Catch up with ' + first, where:'' };
+  const P = f.plan;
+  if (!P.open){
+    card.append(h('div', null, h('button', { class:'btn solid', type:'button', onclick: () => { P.open = true; renderModal(); } }, existing ? 'Set another date' : 'Set a date')));
+    return card;
+  }
+  const date = h('input', { id:'pl-date', type:'date', class:'inp' }); date.value = P.date; date.addEventListener('input', () => P.date = date.value);
+  const time = h('input', { id:'pl-time', type:'time', class:'inp' }); time.value = P.time; time.addEventListener('input', () => P.time = time.value);
+  const mins = h('select', { id:'pl-mins', class:'inp' }, h('option', { value:'30' }, '30 minutes'), h('option', { value:'60' }, '1 hour'), h('option', { value:'90' }, '1½ hours'), h('option', { value:'120' }, '2 hours'));
+  mins.value = P.mins; mins.addEventListener('change', () => P.mins = mins.value);
+  const what = textInput('pl-what', P.what); what.addEventListener('input', () => P.what = what.value);
+  const where = textInput('pl-where', P.where, 'e.g. Coffee shop, after service'); where.addEventListener('input', () => P.where = where.value);
+  card.append(
+    h('div', { class:'formgrid' }, field('Date', date), field('Time', time), field('How long', mins), field('Where (optional)', where)),
+    field('What', what),
+    h('p', { class:'muted', style:'margin:0' }, p.email ? 'Google Calendar will open with ' + first + ' (' + p.email + ') added as a guest. Tap Save, then Send so they get the invite.' : 'Google Calendar will open so you can save it. ' + first + ' has no email yet, so no invite is sent. Ed can add emails in Admin.'),
+    h('div', { style:'display:flex;gap:8px;flex-wrap:wrap' },
+      h('button', { class:'btn solid', type:'button', onclick: async e => {
+        if (!P.date || !P.time){ toast('Pick a date and time.'); return; }
+        const start = new Date(P.date + 'T' + P.time), end = new Date(start.getTime() + parseInt(P.mins, 10) * 60000);
+        const title = (P.what || 'Catch up with ' + first).trim();
+        const url = gcalUrl(title, start, end, 'Favor Kids Care check-in with ' + p.name + ', from ' + S.me.name + '.', P.where.trim(), p.email);
+        window.open(url, '_blank', 'noopener');
+        e.target.disabled = true;
+        try {
+          await addDoc(collection(S.db, 'plans'), { personId:p.id, by:S.user.uid, byName:S.me.name, when:start.toISOString(), mins:parseInt(P.mins, 10), what:title, where:P.where.trim() || null, createdAt:new Date().toISOString() });
+          f.plan = null; renderModal(); toast('Meetup saved. Finish adding it in Google Calendar.');
+        } catch(err){ e.target.disabled = false; failWrite(); }
+      } }, 'Add to Google Calendar'),
+      h('button', { class:'btn', type:'button', onclick: () => { P.open = false; renderModal(); } }, 'Cancel')));
+  return card;
 }
 
 // ---------- admin ----------
@@ -490,7 +562,7 @@ function renderAdmin(){
   if (A.tab === 'people'){
     if (A.editing){
       const p = A.editing === 'new' ? { active:true } : (S.people.find(x => x.id === A.editing) || {});
-      const name = textInput('a-name', p.name), team = textInput('a-team', p.team), careBy = textInput('a-care', p.careBy, 'e.g. Ricki or Claud'), confirm = textInput('a-confirm', p.confirm);
+      const name = textInput('a-name', p.name), email = textInput('a-email', p.email, 'For calendar invites'), team = textInput('a-team', p.team), careBy = textInput('a-care', p.careBy, 'e.g. Ricki or Claud'), confirm = textInput('a-confirm', p.confirm);
       const d1 = deptSelect('a-dept', p.dept, false, true), d2 = deptSelect('a-dept2', p.dept2, false, true);
       const pool = h('select', { id:'a-pool', class:'inp' }, h('option', { value:'' }, 'Anyone'), h('option', { value:'Women' }, 'Any woman'), h('option', { value:'Men' }, 'Any man'));
       pool.value = p.pool || '';
@@ -498,12 +570,13 @@ function renderAdmin(){
         h('strong', { style:'font-size:18px' }, A.editing === 'new' ? 'Add a person' : 'Edit ' + p.name),
         field('Name', name),
         h('div', { class:'formgrid' }, field('Department', d1), field('Also in', d2), field('Team', team), field('Who can check in', pool)),
+        field('Email (optional)', email),
         field('Cared for by (optional)', careBy), field('Note to confirm (optional)', confirm),
         h('div', { style:'display:flex;gap:8px;flex-wrap:wrap' },
           h('button', { class:'btn solid', type:'button', onclick: async e => {
             const nm = name.value.trim(); if (!nm) { name.focus(); return; }
             e.target.disabled = true;
-            const data = { name:nm, dept:d1.value, dept2:d2.value || null, team:team.value.trim() || null, pool:pool.value || null, careBy:careBy.value.trim() || null, confirm:confirm.value.trim() || null, active:true };
+            const data = { name:nm, dept:d1.value, dept2:d2.value || null, team:team.value.trim() || null, pool:pool.value || null, careBy:careBy.value.trim() || null, confirm:confirm.value.trim() || null, email:email.value.trim().toLowerCase() || null, active:true };
             const id = A.editing === 'new' ? (S.people.some(x => x.id === slug(nm)) ? slug(nm) + '-' + Date.now().toString(36) : slug(nm)) : A.editing;
             try { await setDoc(doc(S.db, 'people', id), data, { merge:true }); A.editing = null; renderAdmin(); toast('Saved ' + nm + '.'); }
             catch(err){ e.target.disabled = false; toast('Couldn’t save. Try again.'); }
@@ -514,13 +587,13 @@ function renderAdmin(){
             catch(err){ toast('Couldn’t remove. Try again.'); }
           } }, 'Remove from list') : null)));
     } else {
-      const ta = h('textarea', { id:'a-import', rows:'6', placeholder:'Name | Department | Also in | Team | Any woman/Any man | Cared for by' });
+      const ta = h('textarea', { id:'a-import', rows:'6', placeholder:'Name | Department | Also in | Team | Any woman/Any man | Cared for by | Email' });
       ta.value = A.importText; ta.addEventListener('input', () => { A.importText = ta.value; });
       body.append(
         h('div', { style:'display:flex;gap:8px;flex-wrap:wrap' }, h('button', { class:'btn solid', type:'button', onclick: () => { A.editing = 'new'; renderAdmin(); } }, 'Add a person')),
         h('section', { class:'card', style:'display:flex;flex-direction:column;gap:8px' },
           h('strong', null, 'Import a list'),
-          h('p', { class:'muted', style:'margin:0' }, 'One person per line: Name | Department | Also in | Team | Any woman or Any man | Cared for by. Only the name is required. People already on the list are updated.'),
+          h('p', { class:'muted', style:'margin:0' }, 'One person per line: Name | Department | Also in | Team | Any woman or Any man | Cared for by | Email. Only the name is required. People already on the list are updated.'),
           ta, A.importMsg ? h('div', { class:'ok' }, A.importMsg) : null,
           h('div', null, h('button', { class:'btn', type:'button', onclick: e => importList(e.target) }, 'Import'))),
         h('section', { class:'card' },
@@ -612,6 +685,7 @@ async function importList(btn){
       const data = { name:c[0], dept:deptName(c[1]), dept2:deptName(c[2]) || null, team:c[3] || null,
         pool: poolRaw.includes('wom') ? 'Women' : (poolRaw.includes('man') || poolRaw.includes('men') ? 'Men' : null),
         careBy:c[5] || null, active:true };
+      if (c[6]) data.email = c[6].toLowerCase();
       batch.set(doc(S.db, 'people', slug(c[0])), data, { merge:true });
       n++; total++;
       if (n === 400){ await batch.commit(); batch = writeBatch(S.db); n = 0; }

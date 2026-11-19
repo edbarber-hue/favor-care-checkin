@@ -40,6 +40,13 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isLeader() && resource.data.by == request.auth.uid);
     }
 
+    // Planned meetups (dates set with "Set a date")
+    match /plans/{id} {
+      allow read: if isLeader();
+      allow create: if isLeader() && request.resource.data.by == request.auth.uid;
+      allow update, delete: if isAdmin() || (isLeader() && resource.data.by == request.auth.uid);
+    }
+
     // Private care notes: only the person who wrote them can read or write them.
     match /users/{uid}/notes/{noteId} {
       allow read, write: if isLeader() && request.auth.uid == uid;
